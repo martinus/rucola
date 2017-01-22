@@ -1,0 +1,6 @@
+[package]
+name = "rucola"
+version = "0.1.0"
+authors = ["Martin Ankerl <martin.ankerl@gmail.com>"]
+
+[dependencies]
