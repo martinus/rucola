@@ -3,20 +3,15 @@ use std::process::{Command, Stdio};
 use std::thread;
 use std::env;
 
-fn handle(is_stdout: bool, line: String) {
-    if is_stdout {
-        println!("stdout: [{}]", line);
-    } else {
-        writeln!(&mut std::io::stderr(), "stderr [{}]", line);
-    }
+fn handle<W: Write>(out: &mut W, line: String) {
+    writeln!(out, "\x1B[33m{}\x1B[0m", line).unwrap();
 }
 
 fn main() {
     let mut args: Vec<String> = env::args().collect();
-    let self_cmd: String = args.remove(0);
+    args.remove(0);
     let cmd: String = args.remove(0);
 
-    println!("{}", cmd);
     let mut child = Command::new(cmd)
         .args(&args)
         .stdout(Stdio::piped())
@@ -25,20 +20,31 @@ fn main() {
         .unwrap();
 
     // process stderr in other thread
-    let mut s = child.stderr;
+    let mut child_stderr = child.stderr;
     let stderr_thread = thread::spawn(move || {
-        if let Some(ref mut stderr) = s {
+        if let Some(ref mut stderr) = child_stderr {
+            let self_stderr = std::io::stderr();
+            let mut h = self_stderr.lock();
             for line in BufReader::new(stderr).lines() {
-                handle(false, line.unwrap());
+                handle(&mut h, line.unwrap());
             }
         }
+        return child_stderr;
     });
 
     if let Some(ref mut stdout) = child.stdout {
+        let self_stdout = std::io::stdout();
+        let mut h = self_stdout.lock();
         for line in BufReader::new(stdout).lines() {
-            handle(true, line.unwrap());
+            handle(&mut h, line.unwrap());
         }
     }
 
-    stderr_thread.join();
+    // set back, so we can modify child again
+    child.stderr = stderr_thread.join().unwrap();
+
+    match child.wait() {
+        Ok(c) => std::process::exit(c.code().unwrap()),
+        Err(e) => println!("err={:?}", e),
+    }
 }
